@@ -1,5 +1,7 @@
 """Test attribute selectors."""
 from .. import util
+import platform
+import soupsieve as sv
 
 
 class TestAttribute(util.TestCase):
@@ -50,3 +52,49 @@ class TestAttribute(util.TestCase):
             ["div", "0", "1", "2", "3", "pre", "4", "6"],
             flags=util.HTML5
         )
+
+    def assert_syntax_error_not_timeout(self, pattern):
+        """Assert that compiling the pattern fails with a syntax error, not a timeout error."""
+
+        if platform.system() == 'Windows':
+            # `SIGALRM` is not available on Windows.
+            with self.assertRaises(sv.SelectorSyntaxError):
+                sv.compile(pattern)
+            return
+
+        import signal
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError
+
+        original_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(3)
+
+        passed = False
+        try:
+            with self.assertRaises(sv.SelectorSyntaxError):
+                sv.compile(pattern)
+            passed = True
+        except TimeoutError:
+            pass
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, original_handler)
+        self.assertTrue(passed)
+
+    def test_bad_attribute_unclused(self):
+        """Test bad attribute fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_not_timeout('[a="' + ('x' * 300))
+
+    def test_bad_attribute_unclosed_single_quote(self):
+        """Test bad attribute with unclosed single quote fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_not_timeout("[a='" + ('x' * 300))
+
+    def test_bad_pseudo_value_unclosed(self):
+        """Test pseudo-class with unclosed quoted value fails for syntax error, not timeout error."""
+
+        for pattern in (':-soup-contains("', ":-soup-contains('", ':lang("', ":lang('"):
+            with self.subTest(pattern=pattern):
+                self.assert_syntax_error_not_timeout(pattern + ('x' * 300))
